@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>GRANNY — Five Days</title>
+<link rel="stylesheet" href="src/style.css">
+</head>
+<body>
+
+<div id="stage">
+  <canvas id="view"></canvas>
+
+  <!-- ------------------------------ HUD ------------------------------ -->
+  <div id="hud" class="hidden">
+    <div id="vignette"></div>
+    <div id="damage"></div>
+
+    <div id="topleft">
+      <div id="day">DAY 1 <span class="of">/ 5</span></div>
+      <div id="objective">Find a way out of the house.</div>
+    </div>
+
+    <div id="crosshair"></div>
+    <div id="prompt" class="hidden"></div>
+
+    <div id="bottom">
+      <div id="inventory"></div>
+      <div id="meters">
+        <div class="meter"><span class="lbl">STAMINA</span><div class="bar"><i id="staminabar"></i></div></div>
+        <div class="meter"><span class="lbl">NOISE</span><div class="bar noise"><i id="noisebar"></i></div></div>
+      </div>
+    </div>
+
+    <div id="heartbeat"></div>
+    <div id="toast"></div>
+    <div id="floorname"></div>
+  </div>
+
+  <!-- ---------------------------- OVERLAYS --------------------------- -->
+  <div id="overlay" class="screen">
+    <div class="panel title-panel">
+      <h1 class="logo">GRANNY</h1>
+      <p class="tag">Five days. One house. Don't wake her.</p>
+      <div class="btns">
+        <button id="btn-play" class="primary">NEW GAME</button>
+        <button id="btn-continue" class="hidden">CONTINUE</button>
+        <button id="btn-howto">HOW TO PLAY</button>
+      </div>
+      <p class="fineprint">
+        An original fan recreation of the escape-horror formula popularised by
+        DVloper's <em>Granny</em>. All art, audio and code here are generated from
+        scratch — no original assets are used.
+      </p>
+    </div>
+  </div>
+
+  <div id="howto" class="screen hidden">
+    <div class="panel wide">
+      <h2>HOW TO PLAY</h2>
+      <div class="cols">
+        <div>
+          <h3>Controls</h3>
+          <ul class="keys">
+            <li><b>W A S D</b><span>Move</span></li>
+            <li><b>Mouse</b><span>Look</span></li>
+            <li><b>Shift</b><span>Sprint (very loud)</span></li>
+            <li><b>Ctrl</b><span>Crouch (quiet)</span></li>
+            <li><b>E</b><span>Interact / pick up</span></li>
+            <li><b>1 – 6</b><span>Select item</span></li>
+            <li><b>Q</b><span>Drop item</span></li>
+            <li><b>F</b><span>Flashlight</span></li>
+            <li><b>R</b><span>Fire tranquilliser</span></li>
+            <li><b>Esc</b><span>Pause</span></li>
+          </ul>
+        </div>
+        <div>
+          <h3>Rules of the house</h3>
+          <ul class="rules">
+            <li>Granny hears <b>everything</b>. Slamming doors, sprinting,
+                smashing crates and gunshots pull her straight to you.</li>
+            <li>If she catches you, you lose a day. On <b>day 5</b> there is no
+                waking up.</li>
+            <li>Anything you unlock, unscrew or smash <b>stays</b> that way
+                between days. Progress is permanent — only you get reset.</li>
+            <li>Hide in wardrobes and under beds. She will walk right past you
+                if she didn't see you climb in.</li>
+            <li>A tranquilliser dart buys you twenty seconds. Bear traps buy
+                you more, if you can place one in her path.</li>
+            <li>There are <b>two</b> ways out. One through the front door,
+                one under the house.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="btns"><button id="btn-back" class="primary">BACK</button></div>
+    </div>
+  </div>
+
+  <div id="pause" class="screen hidden">
+    <div class="panel">
+      <h2>PAUSED</h2>
+      <div class="btns">
+        <button id="btn-resume" class="primary">RESUME</button>
+        <button id="btn-quit">ABANDON RUN</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="dayscreen" class="screen hidden black">
+    <div class="daycard">
+      <h2 id="daycard-title">DAY 2</h2>
+      <p id="daycard-sub">She dragged you back to the bedroom.</p>
+    </div>
+  </div>
+
+  <div id="endscreen" class="screen hidden">
+    <div class="panel">
+      <h2 id="end-title">YOU ESCAPED</h2>
+      <p id="end-sub"></p>
+      <div id="end-stats"></div>
+      <div class="btns"><button id="btn-again" class="primary">PLAY AGAIN</button></div>
+    </div>
+  </div>
+
+  <div id="clickcatch" class="hidden"><span>Click to look around</span></div>
+</div>
+
+<script src="src/util.js"></script>
+<script src="src/textures.js"></script>
+<script src="src/audio.js"></script>
+<script src="src/levels.js"></script>
+<script src="src/raycast.js"></script>
+<script src="src/pathfind.js"></script>
+<script src="src/items.js"></script>
+<script src="src/player.js"></script>
+<script src="src/granny.js"></script>
+<script src="src/game.js"></script>
+</body>
+</html>
