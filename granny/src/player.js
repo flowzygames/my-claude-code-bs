@@ -13,24 +13,29 @@ const Player = {
   stamina: 1, exhausted: false,
   crouching: false, sprinting: false,
   hiding: null,               // hide-spot entity while tucked away
-  hideBlend: 0,
   torchOn: true,
   battery: 1,
   noise: 0,                   // 0..1, drives the HUD meter
   firing: 0,
   alive: true,
+  eyeY: 1.05,                 // current camera height, smoothed
+  hideEye: 0,                 // >0 while tucked into a hiding place
 
   reset(spawn) {
     this.x = spawn.x; this.y = spawn.y; this.ang = spawn.ang || 0;
     this.level = spawn.level;
     this.pitch = 0; this.vx = this.vy = 0;
     this.stamina = 1; this.exhausted = false;
-    this.hiding = null; this.hideBlend = 0;
+    this.hiding = null;
     this.noise = 0; this.stepAcc = 0;
     this.alive = true;
   },
 
-  get eye() { return this.crouching ? 0.34 : 0.5; },
+  /** Where the camera sits, in world units above the floor. */
+  targetEye() {
+    if (this.hiding) return this.hideEye;
+    return this.crouching ? 0.62 : 1.05;
+  },
 
   /* --------------------------------------------------------------- */
   update(dt, input, level, game) {
@@ -38,7 +43,6 @@ const Player = {
 
     /* --- hiding freezes movement ------------------------------- */
     if (this.hiding) {
-      this.hideBlend = Math.min(1, this.hideBlend + dt * 4);
       this.noise = 0;
       // you can still turn your head a little, peeking out
       const limit = 0.8;
@@ -49,7 +53,6 @@ const Player = {
       this.stamina = Math.min(1, this.stamina + dt * 0.22);
       return;
     }
-    this.hideBlend = Math.max(0, this.hideBlend - dt * 5);
 
     /* --- intent ------------------------------------------------- */
     let fwd = 0, strafe = 0;
@@ -123,9 +126,6 @@ const Player = {
         game.toast('The torch dies. Find a battery.');
       }
     }
-
-    // pitch drifts back to level
-    this.pitch += (0 - this.pitch) * Math.min(1, dt * 2);
   },
 
   /* --- axis-separated collision against the tile grid ------------- */
@@ -149,10 +149,16 @@ const Player = {
       // furniture. Only blocks moves that would take you *into* it, so a
       // spawn or a scramble out of a wardrobe can never wedge you inside one.
       for (const e of level.entities) {
-        if (e.taken || !e.sprite) continue;
-        const r = PROP_BLOCK[e.sprite];
+        if (e.taken || !e.model) continue;
+        const r = PROP_BLOCK[e.model];
         if (!r) continue;
         if (U.dist(nx, ny, e.x, e.y) < r && U.dist(this.x, this.y, e.x, e.y) >= r) return true;
+      }
+      // a swung door leaf is a solid plank, not a suggestion
+      for (const d of level.doors) {
+        if (d.anim < 0.02) continue;
+        if (World.leafDistance(d, nx, ny) < 0.2 &&
+            World.leafDistance(d, this.x, this.y) >= 0.2) return true;
       }
       return false;
     };
@@ -162,16 +168,27 @@ const Player = {
 
   look(dx, dy, sens) {
     this.ang += dx * sens;
-    this.pitch = U.clamp(this.pitch - dy * sens * 260, -R.H * 0.35, R.H * 0.35);
+    this.pitch = U.clamp(this.pitch - dy * sens, -1.2, 1.2);
     if (this.ang > Math.PI) this.ang -= Math.PI * 2;
     if (this.ang < -Math.PI) this.ang += Math.PI * 2;
   },
 
-  camera() {
-    const bobY = Math.sin(this.bob * 2) * (this.sprinting ? 3.4 : 1.8);
+  /**
+   * Camera state for the renderer. The grid's y axis is the world's z axis;
+   * everything above the floor is world y.
+   */
+  camera(dt) {
+    const want = this.targetEye();
+    this.eyeY += (want - this.eyeY) * Math.min(1, (dt || 0.016) * 9);
+    const speed = Math.hypot(this.vx, this.vy);
+    const bobY = this.hiding ? 0 : Math.sin(this.bob * 2) * speed * 0.008;
+    const bobX = this.hiding ? 0 : Math.cos(this.bob) * speed * 0.004;
     return {
-      x: this.x, y: this.y, ang: this.ang,
-      pitch: this.pitch + bobY - (this.crouching ? R.H * 0.06 : 0) - this.hideBlend * R.H * 0.05,
+      x: this.x + bobX * Math.cos(this.ang + Math.PI / 2),
+      y: this.eyeY + bobY,
+      z: this.y + bobX * Math.sin(this.ang + Math.PI / 2),
+      yaw: this.ang,
+      pitch: this.pitch,
     };
   },
 };

@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------ *
  *  textures.js — every pixel in this game is generated at runtime.
- *  Wall textures are 64x64 RGBA buffers sampled by the raycaster;
- *  sprites are canvases (also exposed as raw buffers for the 3D pass).
+ *  Surface textures are 64x64 RGBA buffers uploaded to the GPU; the item
+ *  drawings are canvases used for the inventory icons.
  * ------------------------------------------------------------------ */
 'use strict';
 
@@ -24,6 +24,8 @@ const T = {
   PLASTER: 12,
   METAL: 13,
   BOARDS: 14,     // boarded-over opening
+  FLOORB: 15,     // floorboards
+  CEIL: 16,       // stained plaster ceiling
 };
 
 const TEX = [];          // TEX[tileId] = {w,h,data}
@@ -49,10 +51,8 @@ function bufFromPixelFn(size, fn) {
 function canvasSprite(w, h, draw) {
   const cv = document.createElement('canvas');
   cv.width = w; cv.height = h;
-  const g = cv.getContext('2d');
-  draw(g, w, h);
-  const id = g.getImageData(0, 0, w, h);
-  return { w, h, data: id.data, canvas: cv };
+  draw(cv.getContext('2d'), w, h);
+  return { w, h, canvas: cv };
 }
 
 /* grain shared by most surfaces */
@@ -277,6 +277,36 @@ function buildWallTextures() {
     o[0] = U.lerp(v, 116, rust); o[1] = U.lerp(v, 58, rust); o[2] = U.lerp(v, 34, rust);
   });
 
+  /* --- floorboards ------------------------------------------------ */
+  TEX[T.FLOORB] = bufFromPixelFn(TEX_SIZE, (x, y, o) => {
+    const bw = 21;                       // board width, deliberately not 64/n
+    const board = Math.floor(y / bw);
+    const stagger = (board * 29) % 64;   // stagger the butt joints
+    const along = (x + stagger) % 64;
+    const id = U.hash(board, Math.floor(along / 32), 41);
+    const gap = (y % bw) < 1.2 || along % 32 < 0.9;
+    const grainv = U.fbm(x * 0.55, y * 3.2 + board * 7, 43, 3);
+    let r = 74 + id * 30 + grainv * 40;
+    let g = 50 + id * 20 + grainv * 26;
+    let b = 32 + id * 12 + grainv * 16;
+    // traffic wear down the middle of the room
+    const wear = U.clamp(U.fbm(x * 0.05, y * 0.05, 47, 3) * 1.5 - 0.5, 0, 1);
+    r += wear * 22; g += wear * 16; b += wear * 10;
+    if (gap) { r *= 0.34; g *= 0.34; b *= 0.34; }
+    o[0] = r; o[1] = g; o[2] = b;
+  });
+
+  /* --- ceiling plaster -------------------------------------------- */
+  TEX[T.CEIL] = bufFromPixelFn(TEX_SIZE, (x, y, o) => {
+    const t = U.fbm(x * 0.11, y * 0.11, 53, 4);
+    let v = 78 + t * 26 + grain(x, y, 12, 8);
+    // damp blooms spreading from the corners
+    const stain = U.clamp(U.fbm(x * 0.045, y * 0.05, 59, 4) * 1.9 - 0.85, 0, 1);
+    o[0] = U.lerp(v, 66, stain);
+    o[1] = U.lerp(v * 0.98, 56, stain);
+    o[2] = U.lerp(v * 0.9, 42, stain);
+  });
+
   /* --- boarded-up opening ----------------------------------------- */
   TEX[T.BOARDS] = bufFromPixelFn(TEX_SIZE, (x, y, o) => {
     const band = (y + Math.sin(x * 0.1) * 2) % 14;
@@ -293,88 +323,6 @@ function buildWallTextures() {
 /* ------------------------------------------------------------------ *
  *  sprites
  * ------------------------------------------------------------------ */
-
-/* ---- the old woman ------------------------------------------------ */
-function drawGranny(g, w, h, phase, mode) {
-  g.clearRect(0, 0, w, h);
-  const cx = w / 2;
-  const swing = Math.sin(phase) * (mode === 'chase' ? 10 : 5);
-  const bob = Math.abs(Math.cos(phase)) * (mode === 'chase' ? 3 : 1.5);
-  const lean = mode === 'chase' ? 6 : 2;
-
-  const dress = '#6d6a63', dressDark = '#4a4842', skin = '#c9ab8c';
-
-  // legs
-  g.strokeStyle = '#3b3934'; g.lineWidth = 6; g.lineCap = 'round';
-  g.beginPath();
-  g.moveTo(cx - 5, h - 30); g.lineTo(cx - 6 - swing * .5, h - 4);
-  g.moveTo(cx + 5, h - 30); g.lineTo(cx + 6 + swing * .5, h - 4);
-  g.stroke();
-  // slippers
-  g.fillStyle = '#2a2825';
-  g.fillRect(cx - 12 - swing * .5, h - 6, 13, 5);
-  g.fillRect(cx + 1 + swing * .5, h - 6, 13, 5);
-
-  // hunched body
-  g.fillStyle = dress;
-  g.beginPath();
-  g.moveTo(cx - 15, h - 26 + bob);
-  g.quadraticCurveTo(cx - 20, h - 58 + bob, cx - 9 - lean, h - 66 + bob);
-  g.lineTo(cx + 9 - lean, h - 66 + bob);
-  g.quadraticCurveTo(cx + 20, h - 58 + bob, cx + 15, h - 26 + bob);
-  g.closePath(); g.fill();
-  // apron shadow
-  g.fillStyle = dressDark;
-  g.beginPath();
-  g.moveTo(cx - 8, h - 26 + bob); g.lineTo(cx + 8, h - 26 + bob);
-  g.lineTo(cx + 5, h - 52 + bob); g.lineTo(cx - 5, h - 52 + bob);
-  g.closePath(); g.fill();
-
-  // arms — one reaching, one holding the bat
-  g.strokeStyle = skin; g.lineWidth = 5;
-  g.beginPath();
-  g.moveTo(cx - 12, h - 60 + bob);
-  g.lineTo(cx - 19 - lean, h - 44 + bob + swing * .4);
-  g.moveTo(cx + 12, h - 60 + bob);
-  g.lineTo(cx + 20 + lean, h - 46 + bob - swing * .4);
-  g.stroke();
-
-  // baseball bat
-  g.save();
-  g.translate(cx + 20 + lean, h - 46 + bob - swing * .4);
-  g.rotate(mode === 'chase' ? -0.9 + Math.sin(phase * 2) * .35 : 0.5);
-  const bg = g.createLinearGradient(0, 0, 0, -34);
-  bg.addColorStop(0, '#6b4a28'); bg.addColorStop(1, '#8d6636');
-  g.fillStyle = bg;
-  g.beginPath(); g.moveTo(-2, 2); g.lineTo(2, 2); g.lineTo(4, -32); g.lineTo(-4, -32); g.closePath(); g.fill();
-  g.restore();
-
-  // head
-  const hy = h - 72 + bob;
-  g.fillStyle = skin;
-  g.beginPath(); g.ellipse(cx - lean, hy, 9, 10.5, 0, 0, 7); g.fill();
-  // hair bun
-  g.fillStyle = '#d9d4c8';
-  g.beginPath(); g.ellipse(cx - lean, hy - 7, 10, 6, 0, Math.PI, 0); g.fill();
-  g.beginPath(); g.arc(cx - lean, hy - 12, 5, 0, 7); g.fill();
-  // face
-  g.fillStyle = '#241d18';
-  g.beginPath(); g.ellipse(cx - lean - 3.4, hy - 1, 1.8, 2.1, 0, 0, 7); g.fill();
-  g.beginPath(); g.ellipse(cx - lean + 3.4, hy - 1, 1.8, 2.1, 0, 0, 7); g.fill();
-  if (mode === 'chase') {                      // open, shrieking mouth
-    g.fillStyle = '#3a0f0d';
-    g.beginPath(); g.ellipse(cx - lean, hy + 5, 3.4, 4.2, 0, 0, 7); g.fill();
-  } else {
-    g.fillStyle = '#5a3a33';
-    g.fillRect(cx - lean - 3, hy + 4, 6, 1.6);
-  }
-  if (mode === 'stunned') {                    // dart sticking out
-    g.strokeStyle = '#c9c2b0'; g.lineWidth = 2;
-    g.beginPath(); g.moveTo(cx - lean + 6, hy + 2); g.lineTo(cx - lean + 16, hy - 4); g.stroke();
-    g.fillStyle = '#a3231c';
-    g.beginPath(); g.arc(cx - lean + 16, hy - 4, 2.4, 0, 7); g.fill();
-  }
-}
 
 /* ---- items --------------------------------------------------------- */
 const ITEM_ART = {
@@ -490,15 +438,8 @@ const ITEM_ART = {
 };
 
 function buildSprites() {
-  /* granny walk cycle in three moods */
-  ['walk', 'chase', 'stunned'].forEach(mode => {
-    for (let f = 0; f < 4; f++) {
-      SPR[`granny_${mode}_${f}`] = canvasSprite(72, 108, (g, w, h) =>
-        drawGranny(g, w, h, f / 4 * Math.PI * 2, mode));
-    }
-  });
-
-  /* items — 48px world sprite doubles as the inventory icon */
+  /* Items are the only thing still drawn in 2D: these canvases are the
+     inventory icons. Everything in the world itself is a 3D model. */
   Object.keys(ITEM_ART).forEach(name => {
     SPR[`item_${name}`] = canvasSprite(48, 48, (g, w) => {
       g.save();
@@ -506,77 +447,6 @@ function buildSprites() {
       ITEM_ART[name](g, w);
       g.restore();
     });
-  });
-
-  /* world props */
-  SPR.crate = canvasSprite(64, 64, (g, w, h) => {
-    g.fillStyle = '#6d4e2c'; g.fillRect(2, 12, w - 4, h - 14);
-    g.strokeStyle = '#4a3520'; g.lineWidth = 3;
-    g.strokeRect(2, 12, w - 4, h - 14);
-    g.beginPath(); g.moveTo(2, 12); g.lineTo(w - 2, h - 2); g.moveTo(w - 2, 12); g.lineTo(2, h - 2); g.stroke();
-  });
-  SPR.crate_broken = canvasSprite(64, 64, (g, w, h) => {
-    g.fillStyle = '#5a4025';
-    g.fillRect(4, h - 20, w - 8, 18);
-    g.strokeStyle = '#3d2c19'; g.lineWidth = 3;
-    g.beginPath();
-    g.moveTo(6, h - 20); g.lineTo(20, h - 34); g.moveTo(26, h - 20); g.lineTo(40, h - 30);
-    g.moveTo(48, h - 20); g.lineTo(56, h - 32); g.stroke();
-  });
-  SPR.safe = canvasSprite(64, 72, (g, w, h) => {
-    g.fillStyle = '#3c4045'; g.fillRect(4, 8, w - 8, h - 10);
-    g.fillStyle = '#2b2f33'; g.fillRect(9, 13, w - 18, h - 20);
-    g.strokeStyle = '#8f979c'; g.lineWidth = 3;
-    g.beginPath(); g.arc(w / 2, h / 2, 9, 0, 7); g.stroke();
-    g.fillStyle = '#c8a13d';
-    g.beginPath(); g.arc(w / 2, h / 2, 3, 0, 7); g.fill();
-  });
-  SPR.hatch = canvasSprite(72, 40, (g, w, h) => {
-    g.fillStyle = '#4a4d50'; g.fillRect(2, 6, w - 4, h - 10);
-    g.strokeStyle = '#22252a'; g.lineWidth = 3; g.strokeRect(2, 6, w - 4, h - 10);
-    g.strokeStyle = '#8f979c'; g.lineWidth = 4;
-    g.beginPath(); g.arc(w / 2, h / 2, 8, Math.PI, 0); g.stroke();
-  });
-  SPR.vent = canvasSprite(48, 48, (g, w, h) => {
-    g.fillStyle = '#6d7276'; g.fillRect(2, 2, w - 4, h - 4);
-    g.fillStyle = '#23262a';
-    for (let i = 0; i < 5; i++) g.fillRect(6, 8 + i * 7, w - 12, 4);
-    g.fillStyle = '#b9bec2';
-    [[5, 5], [w - 6, 5], [5, h - 6], [w - 6, h - 6]].forEach(p => {
-      g.beginPath(); g.arc(p[0], p[1], 2, 0, 7); g.fill();
-    });
-  });
-  SPR.wardrobe = canvasSprite(72, 108, (g, w, h) => {
-    g.fillStyle = '#4e3820'; g.fillRect(2, 2, w - 4, h - 2);
-    g.strokeStyle = '#33240f'; g.lineWidth = 3;
-    g.strokeRect(6, 8, w / 2 - 8, h - 16);
-    g.strokeRect(w / 2 + 2, 8, w / 2 - 8, h - 16);
-    g.fillStyle = '#c8a13d';
-    g.beginPath(); g.arc(w / 2 - 5, h / 2, 3, 0, 7); g.fill();
-    g.beginPath(); g.arc(w / 2 + 5, h / 2, 3, 0, 7); g.fill();
-  });
-  SPR.bed = canvasSprite(96, 56, (g, w, h) => {
-    g.fillStyle = '#5b4a3c'; g.fillRect(2, h - 22, w - 4, 20);
-    g.fillStyle = '#7d8a86'; g.fillRect(6, h - 34, w - 12, 14);
-    g.fillStyle = '#cfc7b4'; g.fillRect(w - 30, h - 40, 24, 10);
-    g.fillStyle = '#3d332a'; g.fillRect(2, h - 46, 6, 44); g.fillRect(w - 8, h - 40, 6, 38);
-  });
-  SPR.winch = canvasSprite(48, 56, (g, w, h) => {
-    g.fillStyle = '#4a4d50'; g.fillRect(8, 10, w - 16, h - 16);
-    g.fillStyle = '#23262a';
-    g.beginPath(); g.arc(w / 2, h / 2, 8, 0, 7); g.fill();
-    g.strokeStyle = '#8f979c'; g.lineWidth = 2;
-    g.beginPath(); g.arc(w / 2, h / 2, 12, 0, 7); g.stroke();
-  });
-  SPR.blood = canvasSprite(64, 64, (g, w, h) => {
-    g.fillStyle = 'rgba(96,12,10,.85)';
-    for (let i = 0; i < 9; i++) {
-      const a = i / 9 * Math.PI * 2, r = 10 + U.hash(i, 3, 5) * 16;
-      g.beginPath();
-      g.ellipse(w / 2 + Math.cos(a) * r * .6, h / 2 + Math.sin(a) * r * .5,
-                4 + U.hash(i, 7, 9) * 8, 3 + U.hash(i, 11, 4) * 6, a, 0, 7);
-      g.fill();
-    }
   });
 }
 

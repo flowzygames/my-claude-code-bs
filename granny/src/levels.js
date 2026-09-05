@@ -4,6 +4,9 @@
  *  Levels are built by carving rooms out of a solid grid; wall tiles are
  *  then inferred from whichever room a solid cell touches, so the maps
  *  below only ever describe rooms, doors and the things inside them.
+ *
+ *  Entity coordinates are grid coordinates: x runs east, y runs south and
+ *  becomes world z. `face` is a game-space angle, 0 pointing east.
  * ------------------------------------------------------------------ */
 'use strict';
 
@@ -71,20 +74,32 @@ function buildLevel(spec) {
     id: spec.id,
     name: spec.name,
     w, h, grid,
+    roomGrid: roomOf,
+    roomStyles: spec.rooms,
+    floorTex: spec.floorTex || T.FLOORB,
+    ceilTex: spec.ceilTex || T.CEIL,
     doors,
     ambient: spec.ambient,
     fog: spec.fog || 9,
-    ceil: spec.ceil,
-    floor: spec.floor,
+    extraLights: spec.lights || [],
     creaks: spec.creaks || [],
     entities: (spec.entities || []).map((e, i) =>
       Object.assign({ id: `${spec.id}_e${i}`, level: spec.id }, e)),
   };
 }
 
+/* shorthand for the decorative furniture that just stands there */
+function prop(model, x, y, face) {
+  return { kind: 'prop', model, x, y, face: face || 0 };
+}
+
 /* ------------------------------------------------------------------ *
  *  level specs
  * ------------------------------------------------------------------ */
+
+const E = Math.PI / 2;      // facing south (+z)
+const N = -Math.PI / 2;     // facing north (-z)
+const Wq = Math.PI;         // facing west (-x)
 
 const LEVEL_SPECS = [
 
@@ -92,16 +107,15 @@ const LEVEL_SPECS = [
   {
     id: 'ground', name: 'GROUND FLOOR',
     w: 28, h: 28, wall: T.PAPER,
-    ambient: 0.19, fog: 9.5,
-    ceil: '#2b241c', floor: '#2f261c',
+    ambient: 0.15, fog: 9.5,
     rooms: [
-      { x: 12, y: 20, w: 5, h: 6, wall: T.PAPER },    // foyer
-      { x: 2, y: 15, w: 9, h: 11, wall: T.PAPER },    // living room
-      { x: 18, y: 15, w: 8, h: 11, wall: T.TILE },    // kitchen
-      { x: 12, y: 9, w: 5, h: 10, wall: T.PAPER },    // hall
-      { x: 2, y: 2, w: 9, h: 11, wall: T.WOOD },      // study
-      { x: 18, y: 2, w: 8, h: 11, wall: T.PLASTER },  // garage
-      { x: 12, y: 2, w: 5, h: 6, wall: T.PAPER },     // stairwell
+      { x: 12, y: 20, w: 5, h: 6, wall: T.PAPER, floor: T.FLOORB },   // foyer
+      { x: 2, y: 15, w: 9, h: 11, wall: T.PAPER, floor: T.FLOORB },   // living room
+      { x: 18, y: 15, w: 8, h: 11, wall: T.TILE, floor: T.TILE },     // kitchen
+      { x: 12, y: 9, w: 5, h: 10, wall: T.PAPER, floor: T.FLOORB },   // hall
+      { x: 2, y: 2, w: 9, h: 11, wall: T.WOOD, floor: T.FLOORB },     // study
+      { x: 18, y: 2, w: 8, h: 11, wall: T.PLASTER, floor: T.PLASTER, ceil: T.PLASTER }, // garage
+      { x: 12, y: 2, w: 5, h: 6, wall: T.PAPER, floor: T.FLOORB },    // stairwell
     ],
     doors: [
       { x: 11, y: 22, label: 'Living room' },
@@ -123,19 +137,34 @@ const LEVEL_SPECS = [
       [1, 3, T.SHELF], [1, 4, T.SHELF],
       [4, 1, T.WINDOW], [8, 1, T.BOARDS], [20, 1, T.BOARDS],
     ],
+    lights: [
+      { x: 22, y: 1.42, z: 7, r: 0.20, g: 0.16, b: 0.10, range: 6 },   // garage bulb
+    ],
     creaks: [[14, 18], [14, 12], [13, 24], [8, 20], [20, 20], [15, 9]],
     entities: [
-      { kind: 'exit', id: 'frontdoor', x: 14.5, y: 25.4, face: Math.PI * 1.5 },
-      { kind: 'winch', x: 16.4, y: 25.5, sprite: 'winch' },
-      { kind: 'safe', id: 'safe', x: 2.6, y: 2.6, sprite: 'safe' },
-      { kind: 'container', id: 'crate', sprite: 'crate', openSprite: 'crate_broken',
+      { kind: 'exit', id: 'frontdoor', x: 14.5, y: 25.4, face: E },
+      { kind: 'winch', model: 'winch', x: 15.7, y: 25.82, face: N },
+      { kind: 'safe', id: 'safe', model: 'safe', x: 2.7, y: 3.5, face: 0 },
+      { kind: 'container', id: 'crate', model: 'crate', openModel: 'crate_broken',
         x: 22.5, y: 5.5, needs: 'hammer', gives: 'crowbar',
-        prompt: 'Smash open crate', noise: 15, verb: 'smash' },
-      { kind: 'item', item: 'masterkey', x: 24.5, y: 24.4 },
-      { kind: 'item', item: 'beartrap', x: 19.5, y: 11.4 },
-      { kind: 'item', item: 'battery', x: 3.5, y: 24.5 },
-      { kind: 'hide', spot: 'wardrobe', x: 9.4, y: 16.5, sprite: 'wardrobe', face: Math.PI },
-      { kind: 'prop', sprite: 'blood', x: 12.6, y: 20.6, flat: true },
+        prompt: 'Smash open crate', noise: 15 },
+      { kind: 'item', item: 'masterkey', x: 21.5, y: 20.5, elev: 0.68 },   // on the table
+      { kind: 'item', item: 'beartrap', x: 19.6, y: 11.3 },
+      { kind: 'item', item: 'battery', x: 3.6, y: 24.4 },
+      { kind: 'hide', spot: 'wardrobe', model: 'wardrobe', x: 9.5, y: 16.6, face: Wq },
+
+      /* --- furnishings --- */
+      prop('rug', 5.5, 22.5), prop('sofa', 5.5, 24.4, N), prop('armchair', 8.4, 23.4, Wq),
+      prop('clock', 2.4, 18.5, 0), prop('lamp', 3.0, 21.0),
+      prop('stain', 12.6, 20.6),
+      prop('counter', 21.5, 25.3, N), prop('fridge', 25.4, 16.7, Wq),
+      prop('table', 21.5, 20.5), prop('chair', 20.3, 20.5, 0), prop('chair', 22.7, 20.5, Wq),
+      prop('washer', 25.4, 22.5, Wq),
+      prop('desk', 5.5, 3.0, E), prop('chair', 5.5, 4.3, N),
+      prop('shelfunit', 9.6, 6.5, Wq), prop('shelfunit', 9.6, 9.5, Wq),
+      prop('workbench', 20.0, 3.0, E), prop('barrel', 24.6, 3.6),
+      prop('cardboard', 23.4, 9.6), prop('cardboard', 24.1, 10.3), prop('cardboard', 23.8, 8.9),
+      prop('clock', 12.5, 12.5, 0),
     ],
   },
 
@@ -143,14 +172,13 @@ const LEVEL_SPECS = [
   {
     id: 'upper', name: 'FIRST FLOOR',
     w: 28, h: 28, wall: T.PAPER,
-    ambient: 0.17, fog: 8.5,
-    ceil: '#292219', floor: '#31281d',
+    ambient: 0.14, fog: 8.5,
     rooms: [
-      { x: 12, y: 2, w: 5, h: 24, wall: T.PAPER },    // landing + hall
-      { x: 2, y: 2, w: 9, h: 11, wall: T.PAPER },     // master bedroom
-      { x: 18, y: 2, w: 8, h: 8, wall: T.TILE },      // bathroom
-      { x: 18, y: 12, w: 8, h: 9, wall: T.PAPER },    // small bedroom (start)
-      { x: 2, y: 15, w: 9, h: 11, wall: T.WOOD },     // guest room
+      { x: 12, y: 2, w: 5, h: 24, wall: T.PAPER, floor: T.FLOORB },   // landing + hall
+      { x: 2, y: 2, w: 9, h: 11, wall: T.PAPER, floor: T.FLOORB },    // master bedroom
+      { x: 18, y: 2, w: 8, h: 8, wall: T.TILE, floor: T.TILE },       // bathroom
+      { x: 18, y: 12, w: 8, h: 9, wall: T.PAPER, floor: T.FLOORB },   // small bedroom (start)
+      { x: 2, y: 15, w: 9, h: 11, wall: T.WOOD, floor: T.FLOORB },    // guest room
     ],
     doors: [
       { x: 11, y: 7, locked: 'masterkey', label: 'Master bedroom' },
@@ -165,17 +193,24 @@ const LEVEL_SPECS = [
     ],
     creaks: [[14, 14], [14, 19], [14, 6], [20, 15], [5, 18], [5, 5]],
     entities: [
-      { kind: 'item', item: 'cogwheel', x: 3.5, y: 3.5 },
-      { kind: 'item', item: 'boltcutters', x: 9.4, y: 11.5 },
-      { kind: 'item', item: 'screwdriver', x: 24.5, y: 3.4 },
-      { kind: 'item', item: 'dart', x: 3.5, y: 24.5 },
-      { kind: 'item', item: 'battery', x: 24.5, y: 19.5 },
-      { kind: 'vent', id: 'vent', x: 16.4, y: 22.5, sprite: 'vent',
+      { kind: 'item', item: 'cogwheel', x: 9.4, y: 3.5, elev: 0.86 },   // on the dresser
+      { kind: 'item', item: 'boltcutters', x: 3.6, y: 11.4 },
+      { kind: 'item', item: 'screwdriver', x: 24.6, y: 3.2, elev: 0.88 }, // on the basin
+      { kind: 'item', item: 'dart', x: 3.6, y: 24.4 },
+      { kind: 'item', item: 'battery', x: 25.2, y: 19.5 },
+      { kind: 'vent', id: 'vent', model: 'vent', x: 16.86, y: 22.5, face: Wq,
         needs: 'screwdriver', gives: 'note' },
-      { kind: 'hide', spot: 'bed', x: 21.5, y: 18.5, sprite: 'bed', face: 0 },
-      { kind: 'hide', spot: 'wardrobe', x: 2.6, y: 16.5, sprite: 'wardrobe', face: 0 },
-      { kind: 'hide', spot: 'bed', x: 5.5, y: 4.5, sprite: 'bed', face: 0 },
-      { kind: 'prop', sprite: 'bed', x: 24.0, y: 13.5, face: 0 },
+      { kind: 'hide', spot: 'bed', model: 'bed', x: 21.5, y: 18.4, face: 0 },
+      { kind: 'hide', spot: 'wardrobe', model: 'wardrobe', x: 2.55, y: 16.6, face: 0 },
+      { kind: 'hide', spot: 'bed', model: 'bed', x: 5.5, y: 4.5, face: 0 },
+
+      /* --- furnishings --- */
+      prop('dresser', 9.5, 3.5, Wq), prop('lamp', 3.2, 6.5), prop('rug', 5.5, 8.5),
+      prop('armchair', 3.4, 10.5, 0),
+      prop('bathtub', 23.6, 8.3, N), prop('toilet', 19.0, 3.3, 0), prop('basin', 24.6, 2.7, E),
+      prop('bed', 24.2, 13.4, 0), prop('dresser', 19.0, 13.2, E), prop('cardboard', 25.2, 15.5),
+      prop('bed', 5.5, 24.2, 0), prop('shelfunit', 9.6, 18.5, Wq), prop('chair', 3.5, 20.5, 0),
+      prop('clock', 12.5, 15.5, 0),
     ],
   },
 
@@ -183,12 +218,11 @@ const LEVEL_SPECS = [
   {
     id: 'basement', name: 'BASEMENT',
     w: 28, h: 28, wall: T.STONE,
-    ambient: 0.09, fog: 7,
-    ceil: '#1d1a17', floor: '#221d17',
+    ambient: 0.105, fog: 7.5,
     rooms: [
-      { x: 2, y: 4, w: 13, h: 21, wall: T.STONE },   // main cellar
-      { x: 16, y: 4, w: 10, h: 9, wall: T.METAL },   // boiler room
-      { x: 16, y: 16, w: 10, h: 9, wall: T.DIRT },   // storage / sewer
+      { x: 2, y: 4, w: 13, h: 21, wall: T.STONE, floor: T.PLASTER, ceil: T.WOOD },     // cellar
+      { x: 16, y: 4, w: 10, h: 9, wall: T.METAL, floor: T.PLASTER, ceil: T.PLASTER },  // boiler room
+      { x: 16, y: 16, w: 10, h: 9, wall: T.DIRT, floor: T.DIRT, ceil: T.WOOD },        // storage
     ],
     doors: [
       { x: 15, y: 8, label: 'Boiler room' },
@@ -201,16 +235,26 @@ const LEVEL_SPECS = [
     walls: [
       [1, 12, T.DIRT], [1, 13, T.DIRT], [26, 10, T.METAL], [26, 20, T.DIRT],
     ],
+    lights: [
+      { x: 18.5, y: 0.55, z: 6.5, r: 0.42, g: 0.16, b: 0.05, range: 4.6 },  // boiler firebox
+    ],
     creaks: [],
     entities: [
-      { kind: 'item', item: 'hammer', x: 3.5, y: 5.5 },
-      { kind: 'item', item: 'dart', x: 13.5, y: 23.5 },
-      { kind: 'item', item: 'beartrap', x: 20.5, y: 6.5 },
-      { kind: 'hatch', id: 'sewer', x: 22.5, y: 20.5, sprite: 'hatch' },
-      { kind: 'hide', spot: 'wardrobe', x: 2.6, y: 22.5, sprite: 'wardrobe', face: 0 },
-      { kind: 'prop', sprite: 'crate', x: 13.5, y: 5.5 },
-      { kind: 'prop', sprite: 'crate', x: 12.5, y: 12.5 },
-      { kind: 'prop', sprite: 'blood', x: 16.6, y: 22.5, flat: true },
+      { kind: 'item', item: 'hammer', x: 4.5, y: 5.0, elev: 0.9 },      // on the workbench
+      { kind: 'item', item: 'dart', x: 13.4, y: 23.4 },
+      { kind: 'item', item: 'beartrap', x: 21.5, y: 6.5 },
+      { kind: 'hatch', id: 'sewer', model: 'hatch', x: 22.5, y: 20.5 },
+      { kind: 'hide', spot: 'wardrobe', model: 'wardrobe', x: 2.55, y: 22.5, face: 0 },
+
+      /* --- furnishings --- */
+      prop('workbench', 4.5, 4.6, E), prop('shelfunit', 2.6, 10.5, 0),
+      prop('barrel', 12.4, 8.5), prop('barrel', 12.9, 9.3),
+      prop('cardboard', 3.5, 13.5), prop('cardboard', 4.2, 14.1),
+      prop('crate', 13.5, 5.5), prop('crate', 12.5, 12.5), prop('crate', 6.5, 18.5),
+      prop('washer', 13.6, 18.5, Wq),
+      prop('boiler', 18.5, 6.5), prop('barrel', 24.6, 5.5), prop('shelfunit', 25.4, 10.5, Wq),
+      prop('cardboard', 17.5, 17.5), prop('cardboard', 18.2, 18.1),
+      prop('shelfunit', 25.4, 20.5, Wq), prop('stain', 16.8, 22.5),
     ],
   },
 
@@ -218,22 +262,24 @@ const LEVEL_SPECS = [
   {
     id: 'attic', name: 'ATTIC',
     w: 20, h: 20, wall: T.WOOD,
-    ambient: 0.11, fog: 6.5,
-    ceil: '#2a2318', floor: '#2f2418',
+    ambient: 0.115, fog: 7,
     rooms: [
-      { x: 2, y: 2, w: 15, h: 15, wall: T.WOOD },
+      { x: 2, y: 2, w: 15, h: 15, wall: T.WOOD, floor: T.FLOORB, ceil: T.WOOD },
     ],
     doors: [],
     blocks: [[8, 8, T.WOOD], [9, 8, T.WOOD], [8, 9, T.WOOD]],
     walls: [[1, 9, T.WINDOW], [17, 6, T.BOARDS], [9, 1, T.WINDOW]],
     creaks: [[5, 5], [12, 12], [6, 13]],
     entities: [
-      { kind: 'item', item: 'tranq', x: 15.5, y: 15.5 },
-      { kind: 'item', item: 'dart', x: 15.5, y: 3.5 },
+      { kind: 'item', item: 'tranq', x: 15.4, y: 15.4 },
+      { kind: 'item', item: 'dart', x: 15.4, y: 3.6 },
       { kind: 'item', item: 'battery', x: 4.5, y: 14.5 },
-      { kind: 'prop', sprite: 'crate', x: 12.5, y: 4.5 },
-      { kind: 'prop', sprite: 'crate', x: 5.5, y: 11.5 },
-      { kind: 'hide', spot: 'wardrobe', x: 3.5, y: 2.6, sprite: 'wardrobe', face: Math.PI / 2 },
+      { kind: 'hide', spot: 'wardrobe', model: 'wardrobe', x: 4.5, y: 2.55, face: E },
+
+      /* --- furnishings --- */
+      prop('crate', 12.5, 4.5), prop('crate', 13.2, 5.2), prop('crate', 5.5, 11.5),
+      prop('cardboard', 12.5, 12.5), prop('cardboard', 13.1, 13.2),
+      prop('dresser', 15.5, 9.5, Wq), prop('rug', 7.5, 7.0),
     ],
   },
 ];
@@ -243,12 +289,12 @@ const LEVEL_SPECS = [
  * ------------------------------------------------------------------ */
 
 const STAIRS = [
-  { level: 'ground', x: 14.5, y: 3.5, to: 'upper', tx: 14.5, ty: 3.5, label: 'Go upstairs', dir: 'up' },
-  { level: 'upper', x: 14.5, y: 2.6, to: 'ground', tx: 14.5, ty: 4.6, label: 'Go downstairs', dir: 'down' },
-  { level: 'ground', x: 2.6, y: 25.4, to: 'basement', tx: 13.5, ty: 23.5, label: 'Go down to the basement', dir: 'down' },
-  { level: 'basement', x: 13.5, y: 24.4, to: 'ground', tx: 3.5, ty: 24.4, label: 'Go up to the house', dir: 'up' },
-  { level: 'upper', x: 13.5, y: 25.4, to: 'attic', tx: 3.5, ty: 3.5, label: 'Climb the ladder', dir: 'up' },
-  { level: 'attic', x: 2.6, y: 2.6, to: 'upper', tx: 14.5, ty: 24.4, label: 'Climb down', dir: 'down' },
+  { level: 'ground', x: 14.5, y: 3.5, to: 'upper', tx: 14.5, ty: 3.5, label: 'Go upstairs', dir: 'up', model: 'stairs', face: N },
+  { level: 'upper', x: 14.5, y: 2.6, to: 'ground', tx: 14.5, ty: 4.6, label: 'Go downstairs', dir: 'down', model: 'stairs', face: E },
+  { level: 'ground', x: 2.6, y: 25.4, to: 'basement', tx: 13.5, ty: 23.5, label: 'Go down to the basement', dir: 'down', model: 'stairs', face: 0 },
+  { level: 'basement', x: 13.5, y: 24.4, to: 'ground', tx: 3.5, ty: 24.4, label: 'Go up to the house', dir: 'up', model: 'stairs', face: E },
+  { level: 'upper', x: 13.5, y: 25.4, to: 'attic', tx: 3.5, ty: 3.5, label: 'Climb the ladder', dir: 'up', model: 'ladder', face: E },
+  { level: 'attic', x: 2.6, y: 2.6, to: 'upper', tx: 14.5, ty: 24.4, label: 'Climb down', dir: 'down', model: 'ladder', face: 0 },
 ];
 
 /* the room the player wakes up in every morning */
@@ -266,7 +312,7 @@ function buildWorld() {
     levels[s.level].entities.push({
       id: `stair${i}`, kind: 'stairs', level: s.level,
       x: s.x, y: s.y, to: s.to, tx: s.tx, ty: s.ty,
-      label: s.label, dir: s.dir,
+      label: s.label, dir: s.dir, model: s.model, face: s.face,
     });
   });
   return levels;

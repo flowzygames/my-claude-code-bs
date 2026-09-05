@@ -23,7 +23,12 @@ const Game = {
    * --------------------------------------------------------------- */
   init() {
     buildAllTextures();
-    R.init(U.el('view'));
+    if (!Render.init(U.el('view'))) {
+      document.body.innerHTML =
+        '<p style="color:#a3231c;font:14px monospace;padding:40px">' +
+        'This game needs WebGL, and this browser will not give it to us.</p>';
+      return;
+    }
     this.bindUI();
     this.bindInput();
     this.newWorld();
@@ -31,6 +36,7 @@ const Game = {
   },
 
   newWorld() {
+    if (this.levels) World.disposeAll(GL.gl, this.levels);
     this.levels = buildWorld();
     // door lookup grid + a place to remember dropped items
     Object.values(this.levels).forEach(L => {
@@ -49,6 +55,7 @@ const Game = {
     Player.battery = 1;
     Player.torchOn = true;
     Granny.reset(this.day);
+    Render.buildWorld(this.levels);
   },
 
   startGame() {
@@ -227,6 +234,10 @@ const Game = {
       if (d > reach) continue;
       const a = Math.abs(U.angleDiff(Player.ang, Math.atan2(e.y - Player.y, e.x - Player.x)));
       if (a > 1.15 && d > 0.8) continue;
+      // now that the camera can pitch, staring at the ceiling should not pick
+      // up the key by your feet — but keep the cone generous
+      const elev = Math.atan2(((e.elev || PROP_Y[e.model] || 0) + 0.2) - Player.eyeY, Math.max(0.3, d));
+      if (Math.abs(elev - Player.pitch) > 1.1) continue;
       const score = d + a * 0.8;
       if (score < bestScore) { bestScore = score; best = e; }
     }
@@ -369,8 +380,7 @@ const Game = {
       case 'hide': this.enterHide(e); break;
 
       case 'container':
-        e.opened = true;
-        e.sprite = e.openSprite;                // tools are never consumed
+        e.opened = true;                        // tools are never consumed
         Sound.smash();
         this.makeNoise(e.x, e.y, e.level, e.noise || 14, 'smash');
         this.giveItem(e.gives);
@@ -468,11 +478,18 @@ const Game = {
 
   enterHide(spot) {
     Player.hiding = spot;
-    Player.x = spot.x; Player.y = spot.y;
+    // sit inside the model: back of the wardrobe, or flat under the bed
+    const back = spot.spot === 'wardrobe' ? -0.1 : 0;
+    Player.x = spot.x + Math.cos(spot.face || 0) * back;
+    Player.y = spot.y + Math.sin(spot.face || 0) * back;
+    const inWardrobe = spot.spot === 'wardrobe';
+    Player.hideEye = inWardrobe ? 0.82 : 0.2;
     Player.ang = spot.face || 0;
-    Sound.doorSlam();
-    this.makeNoise(spot.x, spot.y, spot.level, 4, 'hide');
-    this.toast('You pull the door shut and hold your breath.');
+    if (inWardrobe) Sound.doorSlam(); else Sound.step(0.3, true);
+    this.makeNoise(spot.x, spot.y, spot.level, inWardrobe ? 4 : 2, 'hide');
+    this.toast(inWardrobe
+      ? 'You pull the door shut and hold your breath.'
+      : 'You slide underneath and go still.');
   },
 
   leaveHide() {
@@ -480,7 +497,8 @@ const Game = {
     Player.hiding = null;
     Player.x = spot.x + Math.cos(spot.face || 0) * 0.95;
     Player.y = spot.y + Math.sin(spot.face || 0) * 0.95;
-    Sound.doorSlam();
+    Player.hideEye = 0;
+    if (spot.spot === 'wardrobe') Sound.doorSlam(); else Sound.step(0.3, true);
     this.makeNoise(Player.x, Player.y, Player.level, 4, 'hide');
   },
 
@@ -714,7 +732,7 @@ const Game = {
       this.heartCd = U.lerp(1.1, 0.5, danger);
     }
 
-    R.fov = U.lerp(R.fov, Player.sprinting ? 1.16 : 1.05, Math.min(1, dt * 4));
+    Render.fov = U.lerp(Render.fov, Player.sprinting ? 1.28 : 1.15, Math.min(1, dt * 4));
 
     const locked = document.pointerLockElement === U.el('view');
     U.el('clickcatch').classList.toggle('hidden', locked);
@@ -734,61 +752,88 @@ const Game = {
     if (!this._invDrawn) { this.drawInventory(); this._invDrawn = true; }
   },
 
-  /** Everything visible on the player's current floor. */
-  gatherSprites() {
+  /** Everything on the player's floor that isn't part of the building. */
+  gatherScene() {
     const L = this.level();
     const out = [];
+    const t = this.elapsed;
+
     for (const e of L.entities) {
-      if (e.taken || e.kind === 'stairs' || e.kind === 'exit') continue;
+      if (e.taken) continue;
+
       if (e.kind === 'item') {
         const def = ITEMS[e.item];
-        out.push({ x: e.x, y: e.y, sprite: def.sprite, scale: def.scale, yOff: 0.06, glow: 0.14 });
-      } else if (e.sprite) {
+        const elev = e.elev || 0;
         out.push({
-          x: e.x, y: e.y, sprite: e.sprite,
-          scale: PROP_SCALE[e.sprite] || 0.5,
-          yOff: PROP_YOFF[e.sprite] || 0,
+          model: def.model, x: e.x, z: e.y,
+          y: 0.13 + elev + Math.sin(t * 1.7 + e.x * 3) * 0.012,
+          yaw: t * 0.7 + e.x,
+          emissive: 0.15,
+          shadow: elev ? 0 : 0.14,
         });
+        continue;
+      }
+
+      if (!e.model) continue;
+      const model = (e.opened && e.openModel) ? e.openModel : e.model;
+      const block = PROP_BLOCK[model];
+      out.push({
+        model, x: e.x, z: e.y,
+        y: PROP_Y[model] || 0,
+        yaw: e.face || 0,
+        shadow: block ? block * 0.95 : 0,
+      });
+      // the cog, once you have fitted it
+      if (e.kind === 'winch' && this.flags.winch) {
+        out.push({ model: 'winchcog', x: e.x, z: e.y, y: (PROP_Y.winch || 0) + 0.02, yaw: e.face || 0 });
       }
     }
-    for (const t of this.traps) {
-      if (t.level !== Player.level || t.used) continue;
-      out.push({ x: t.x, y: t.y, sprite: 'item_beartrap', scale: 0.24, yOff: 0 });
+
+    for (const trap of this.traps) {
+      if (trap.level !== Player.level || trap.used) continue;
+      out.push({ model: 'item_beartrap', x: trap.x, z: trap.y, y: 0.02, yaw: 0.4 });
     }
+
     if (Granny.level === Player.level) {
-      out.push({ x: Granny.x, y: Granny.y, sprite: Granny.sprite(), scale: 1.05, yOff: 0 });
+      const chasing = Granny.state === 'chase';
+      let headYaw = 0;
+      if (chasing || Granny.state === 'search') {
+        const toPlayer = Math.atan2(Player.y - Granny.y, Player.x - Granny.x);
+        headYaw = U.clamp(U.angleDiff(Granny.ang, toPlayer), -0.8, 0.8);
+      }
+      const mode = (Granny.state === 'stunned' || Granny.state === 'trapped') ? 'stunned'
+                 : chasing ? 'chase' : 'walk';
+      out.push({
+        parts: GrannyRig.pose(Granny.x, Granny.y, Granny.ang, Granny.anim, mode, headYaw),
+        x: Granny.x, z: Granny.y,
+        shadow: 0.3,
+        rim: chasing ? 0.95 : 0.6,
+      });
     }
     return out;
   },
 
   draw(dt) {
     if (this.state === 'menu') {
-      // idle backdrop: a slow drift through the empty hall
+      // idle backdrop: a slow drift down the hall towards the front door
       const t = performance.now() / 1000;
       const L = this.levels.ground;
-      R.render({ x: 14.5, y: 14 + Math.sin(t * 0.12) * 3.2, ang: -Math.PI / 2 + Math.sin(t * 0.07) * 0.25, pitch: 0 },
-               L, [], { on: true, power: 0.8, ambientMul: 1, flicker: 0.93 + Math.random() * 0.1 });
+      Render.frame({
+        x: 14.5, y: 1.05 + Math.sin(t * 0.4) * 0.02,
+        z: 13.5 + Math.sin(t * 0.11) * 3.4,
+        yaw: Math.PI / 2 + Math.sin(t * 0.07) * 0.22,
+        pitch: Math.sin(t * 0.09) * 0.05,
+      }, L, [], { on: true, power: 1.1, ambientMul: 1, flicker: 0.94 + Math.random() * 0.08 }, dt);
       return;
     }
-    if (this.state === 'end' || this.state === 'daybreak') {
-      // keep the last frame under the overlay
-    }
-    const cam = Player.camera();
-    R.render(cam, this.level(), this.gatherSprites(), this.light);
-    const cur = Inventory.current();
-    if (cur && !Player.hiding) R.drawHeld(ITEMS[cur.item].sprite, Player.bob * 2, Player.firing > 0);
 
-    if (Player.hiding) {
-      // slats of a wardrobe door across the view
-      const g = R.ctx, c = R.canvas;
-      g.save();
-      g.fillStyle = 'rgba(0,0,0,.55)';
-      g.fillRect(0, 0, c.width, c.height * 0.18);
-      g.fillRect(0, c.height * 0.82, c.width, c.height * 0.18);
-      g.fillRect(0, 0, c.width * 0.12, c.height);
-      g.fillRect(c.width * 0.88, 0, c.width * 0.12, c.height);
-      g.restore();
-    }
+    const cam = Player.camera(dt);
+    const cur = Inventory.current();
+    this.light.held = (cur && !Player.hiding) ? ITEMS[cur.item].model : null;
+    this.light.heldBob = Player.bob * 2;
+    this.light.heldScale = cur ? (ITEMS[cur.item].held || 0.7) : 0.7;
+    this.light.heldFire = Player.firing > 0;
+    Render.frame(cam, this.level(), this.gatherScene(), this.light, dt);
   },
 };
 

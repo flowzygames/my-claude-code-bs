@@ -5,69 +5,68 @@
 
 const ITEMS = {
   hammer: {
-    name: 'Hammer', sprite: 'item_hammer', scale: 0.24,
+    name: 'Hammer', sprite: 'item_hammer', model: 'item_hammer', scale: 0.24, held: 0.8,
     hint: 'Heavy enough to break something open.',
   },
   crowbar: {
-    name: 'Crowbar', sprite: 'item_crowbar', scale: 0.26,
+    name: 'Crowbar', sprite: 'item_crowbar', model: 'item_crowbar', scale: 0.26, held: 0.7,
     hint: 'For things that are stuck shut.',
   },
   screwdriver: {
-    name: 'Screwdriver', sprite: 'item_screwdriver', scale: 0.18,
+    name: 'Screwdriver', sprite: 'item_screwdriver', model: 'item_screwdriver', scale: 0.18, held: 1.0,
     hint: 'Four screws hold a vent grate on.',
   },
   boltcutters: {
-    name: 'Bolt Cutters', sprite: 'item_boltcutters', scale: 0.26,
+    name: 'Bolt Cutters', sprite: 'item_boltcutters', model: 'item_boltcutters', scale: 0.26, held: 0.7,
     hint: 'They will go through a chain.',
   },
   masterkey: {
-    name: 'Master Key', sprite: 'item_masterkey', scale: 0.17,
+    name: 'Master Key', sprite: 'item_masterkey', model: 'item_masterkey', scale: 0.17, held: 1.2,
     hint: 'Opens the door she keeps locked.',
   },
   padlockkey: {
-    name: 'Padlock Key', sprite: 'item_key', scale: 0.17,
+    name: 'Padlock Key', sprite: 'item_key', model: 'item_key', scale: 0.17, held: 1.2,
     hint: 'Small. Brass. For the front door.',
   },
   cogwheel: {
-    name: 'Cogwheel', sprite: 'item_cogwheel', scale: 0.2,
+    name: 'Cogwheel', sprite: 'item_cogwheel', model: 'item_cogwheel', scale: 0.2, held: 1.0,
     hint: 'Something by the front door is missing a gear.',
   },
   note: {
-    name: 'Torn Note', sprite: 'item_note', scale: 0.16,
+    name: 'Torn Note', sprite: 'item_note', model: 'item_note', scale: 0.16, held: 1.1,
     hint: 'Four digits, scratched in pencil.',
   },
   tranq: {
-    name: 'Tranquilliser Gun', sprite: 'item_tranq', scale: 0.3,
+    name: 'Tranquilliser Gun', sprite: 'item_tranq', model: 'item_tranq', scale: 0.3, held: 0.55,
     hint: 'Needs a dart. [R] to fire.',
   },
   dart: {
-    name: 'Dart', sprite: 'item_dart', scale: 0.15, stack: true,
+    name: 'Dart', sprite: 'item_dart', model: 'item_dart', scale: 0.15, held: 1.1, stack: true,
     hint: 'Loads into the tranquilliser gun.',
   },
   beartrap: {
-    name: 'Bear Trap', sprite: 'item_beartrap', scale: 0.24, stack: true,
+    name: 'Bear Trap', sprite: 'item_beartrap', model: 'item_beartrap', scale: 0.24, held: 0.7, stack: true,
     hint: 'Place it in a doorway and wait.',
   },
   battery: {
-    name: 'Battery', sprite: 'item_battery', scale: 0.15, stack: true,
+    name: 'Battery', sprite: 'item_battery', model: 'item_battery', scale: 0.15, held: 1.3, stack: true,
     hint: 'Your torch will want this eventually.',
   },
 };
 
-/* world-sprite defaults for non-item entities */
-const PROP_SCALE = {
-  crate: 0.52, crate_broken: 0.26, safe: 0.58, hatch: 0.16,
-  vent: 0.36, wardrobe: 1.15, bed: 0.4, winch: 0.4, blood: 0.45,
+/* wall-mounted props: how high off the floor they hang, in world units */
+const PROP_Y = {
+  vent: 0.95, winch: 0.82,
 };
 
-/* how far up the wall a prop hangs, in world units */
-const PROP_YOFF = {
-  vent: 0.55, winch: 0.45,
-};
-
-/* furniture the player cannot simply walk through, and its radius */
+/* furniture the player cannot simply walk through, and its radius.
+   Anything missing here (rugs, stains, the sewer hatch) is walk-over. */
 const PROP_BLOCK = {
-  wardrobe: 0.5, bed: 0.62, safe: 0.45, crate: 0.45, crate_broken: 0.38,
+  wardrobe: 0.44, bed: 0.55, sofa: 0.58, armchair: 0.4, table: 0.48, chair: 0.24,
+  desk: 0.5, dresser: 0.4, shelfunit: 0.38, counter: 0.55, fridge: 0.34,
+  boiler: 0.4, washer: 0.34, workbench: 0.62, toilet: 0.26, bathtub: 0.55,
+  basin: 0.28, clock: 0.25, radiator: 0.3, crate: 0.34, crate_broken: 0.3,
+  barrel: 0.27, cardboard: 0.27, safe: 0.34, lamp: 0.16, stairs: 0.5, ladder: 0.28,
 };
 
 const Inventory = {
