@@ -15,6 +15,9 @@ const Game = {
   input: { keys: {}, mouseSens: 0.0022 },
   toastTimer: 0,
   heartCd: 0,
+  lockBlocked: false,       // some hosts (an iframe) refuse pointer capture
+  dragging: false,
+  dragDist: 0,
   light: { on: true, power: 1.25, ambientMul: 1, flicker: 1 },
   stats: { caught: 0, itemsFound: 0 },
 
@@ -93,9 +96,15 @@ const Game = {
     U.el('clickcatch').onclick = () => this.requestLock();
   },
 
+  locked() { return document.pointerLockElement === U.el('view'); },
+
   requestLock() {
     const c = U.el('view');
-    if (c.requestPointerLock) c.requestPointerLock();
+    if (c.requestPointerLock && !this.lockBlocked) {
+      const r = c.requestPointerLock();
+      // Chrome returns a promise these days; a rejection is a blocked lock
+      if (r && r.catch) r.catch(() => { this.lockBlocked = true; });
+    }
   },
 
   bindInput() {
@@ -112,21 +121,43 @@ const Game = {
 
     document.addEventListener('mousemove', e => {
       if (this.state !== 'playing') return;
-      if (document.pointerLockElement !== U.el('view')) return;
-      Player.look(e.movementX, e.movementY, this.input.mouseSens);
+      if (this.locked() || this.dragging) {
+        this.dragDist += Math.abs(e.movementX) + Math.abs(e.movementY);
+        Player.look(e.movementX, e.movementY, this.input.mouseSens);
+      }
     });
 
     document.addEventListener('pointerlockchange', () => {
-      const locked = document.pointerLockElement === U.el('view');
+      const locked = this.locked();
       U.el('clickcatch').classList.toggle('hidden', locked || this.state !== 'playing');
       if (!locked && this.state === 'playing') this.pause();
     });
 
+    // Pointer capture is not always ours to have — inside an iframe the
+    // request is simply refused. Fall back to hold-and-drag to look.
+    document.addEventListener('pointerlockerror', () => {
+      this.lockBlocked = true;
+      U.el('clickcatch').classList.add('hidden');
+      this.toast('Hold the left mouse button to look around.');
+    });
+
     document.addEventListener('mousedown', e => {
       if (this.state !== 'playing') return;
-      if (document.pointerLockElement !== U.el('view')) { this.requestLock(); return; }
-      if (e.button === 0) this.interact();
-      if (e.button === 2) this.fireTranq();
+      if (this.locked()) {
+        if (e.button === 0) this.interact();
+        if (e.button === 2) this.fireTranq();
+        return;
+      }
+      if (e.button === 2) { this.fireTranq(); return; }
+      this.dragging = true;
+      this.dragDist = 0;
+      if (!this.lockBlocked) this.requestLock();
+    });
+
+    document.addEventListener('mouseup', () => {
+      // a click that didn't turn into a drag is still a click
+      if (this.dragging && this.dragDist < 5 && this.state === 'playing') this.interact();
+      this.dragging = false;
     });
     document.addEventListener('contextmenu', e => e.preventDefault());
     document.addEventListener('wheel', e => {
@@ -734,8 +765,7 @@ const Game = {
 
     Render.fov = U.lerp(Render.fov, Player.sprinting ? 1.28 : 1.15, Math.min(1, dt * 4));
 
-    const locked = document.pointerLockElement === U.el('view');
-    U.el('clickcatch').classList.toggle('hidden', locked);
+    U.el('clickcatch').classList.toggle('hidden', this.locked() || this.lockBlocked);
 
     this.light.on = Player.torchOn && Player.battery > 0;
     this.light.power = 1.25 * (Player.battery > 0.18 ? 1 : 0.55 + Math.random() * 0.3);
